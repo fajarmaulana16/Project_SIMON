@@ -1,0 +1,135 @@
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 28px 16px;
+  background: #f4f7fb;
+  font-family: Arial, sans-serif;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 34px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 35px #172b4d12;
+}
+
+.auth-brand {
+  color: #173d72;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.auth-subtitle,
+.auth-description {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.auth-subtitle {
+  margin: 5px 0 27px;
+}
+
+.auth-card h1 {
+  margin-bottom: 8px;
+  color: #172033;
+  font-size: 25px;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 24px;
+}
+
+.auth-card label {
+  margin-top: 6px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-card input,
+.auth-card select {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  font-size: 13px;
+}
+
+.auth-card input:focus,
+.auth-card select:focus {
+  border-color: #2563eb;
+  outline: 2px solid #dbeafe;
+}
+
+.auth-card form > button {
+  min-height: 46px;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #173d72;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-card form > button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.auth-error,
+.auth-success {
+  margin-top: 15px;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auth-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.auth-success {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.auth-switch {
+  margin-top: 22px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.auth-switch button {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 25px 20px;
+  }
+}
