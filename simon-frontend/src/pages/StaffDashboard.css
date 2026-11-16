@@ -4346,3 +4346,443 @@
     flex-direction: column;
   }
 }
+
+.staff-icon-button {
+  position: relative;
+}
+
+.staff-notification-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 20px;
+  color: #fff;
+  background: #d54b52;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.supervisor-plan-panel {
+  margin-bottom: 18px;
+  scroll-margin-top: 85px;
+}
+
+.supervisor-plan-toolbar {
+  display: flex;
+  overflow-x: auto;
+  padding: 0 18px 12px;
+}
+
+.supervisor-plan-list {
+  padding: 0 18px 8px;
+}
+
+.supervisor-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 17px 0;
+  border-top: 1px solid #edf1f5;
+}
+
+.supervisor-plan-copy {
+  min-width: 0;
+}
+
+.supervisor-plan-copy h3 {
+  margin: 7px 0 4px;
+  color: #253650;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.supervisor-plan-copy > p {
+  margin: 0;
+  color: #77869a;
+  font-size: 10px;
+}
+
+.supervisor-plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 17px;
+  margin-top: 10px;
+  color: #69798e;
+  font-size: 9px;
+}
+
+.supervisor-plan-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.supervisor-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.supervisor-plan-actions > button,
+.supervisor-modal-actions > button {
+  display: inline-flex;
+  min-height: 33px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid #dce5ef;
+  border-radius: 7px;
+  color: #43536b;
+  background: #fff;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.supervisor-plan-actions > button:hover,
+.supervisor-modal-actions > button:hover:not(:disabled) {
+  border-color: #b7c9e2;
+  background: #f7faff;
+}
+
+.supervisor-plan-actions > button.primary,
+.supervisor-modal-actions > button.primary {
+  border-color: #2563a8;
+  color: #fff;
+  background: #2563a8;
+}
+
+.supervisor-plan-actions > button:disabled,
+.supervisor-modal-actions > button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.supervisor-plan-row .planner-status,
+.supervisor-modal-heading .planner-status {
+  display: inline-flex;
+  min-height: 23px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 20px;
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.supervisor-plan-row .status-menunggu_review,
+.supervisor-modal-heading .status-menunggu_review {
+  color: #9c690b;
+  background: #fff4d8;
+}
+
+.supervisor-plan-row .status-revisi,
+.supervisor-modal-heading .status-revisi {
+  color: #b34d33;
+  background: #fff0e9;
+}
+
+.supervisor-plan-row .status-disetujui,
+.supervisor-modal-heading .status-disetujui {
+  color: #218257;
+  background: #eaf8f0;
+}
+
+.supervisor-plan-row .status-berjalan,
+.supervisor-modal-heading .status-berjalan {
+  color: #9a6b0d;
+  background: #fff7e2;
+}
+
+.supervisor-modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  place-items: center;
+  padding: 22px;
+  background: #101a2d8c;
+  backdrop-filter: blur(3px);
+}
+
+.supervisor-workflow-modal {
+  width: min(760px, 100%);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+  padding: 21px;
+  border: 1px solid #e6ecf3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px #0f172a40;
+}
+
+.supervisor-modal-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.supervisor-modal-heading > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.supervisor-modal-heading > div > span {
+  color: #3570b5;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.supervisor-modal-heading h2 {
+  margin: 5px 0;
+  color: #1c2b43;
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.supervisor-modal-heading p {
+  margin: 0;
+  color: #77869a;
+  font-size: 10px;
+}
+
+.supervisor-plan-details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.supervisor-plan-details > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e9eef4;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.supervisor-plan-details dt {
+  color: #8290a1;
+  font-size: 8px;
+}
+
+.supervisor-plan-details dd {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: #35445c;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.supervisor-plan-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 11px;
+}
+
+.supervisor-plan-notes article {
+  padding: 11px;
+  border: 1px solid #e9eef4;
+  border-radius: 8px;
+}
+
+.supervisor-plan-notes h3,
+.supervisor-plan-history h3 {
+  margin: 0 0 5px;
+  color: #4a5b74;
+  font-size: 10px;
+}
+
+.supervisor-plan-notes p,
+.supervisor-plan-history > p,
+.supervisor-plan-history li p {
+  margin: 0;
+  color: #69798e;
+  font-size: 9px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.supervisor-plan-history {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e8edf4;
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.supervisor-plan-history ol {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding-left: 17px;
+}
+
+.supervisor-plan-history li {
+  padding-left: 2px;
+  color: #3674c6;
+}
+
+.supervisor-plan-history li strong {
+  color: #3c4d65;
+  font-size: 9px;
+}
+
+.supervisor-plan-history li small {
+  display: block;
+  margin: 2px 0 4px;
+  color: #8a96a5;
+  font-size: 8px;
+}
+
+.supervisor-revision-field,
+.supervisor-task-form > label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: #53637a;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.supervisor-revision-field {
+  margin-top: 12px;
+}
+
+.supervisor-revision-field b {
+  color: #9b6b16;
+  font-size: 8px;
+}
+
+.supervisor-revision-field textarea,
+.supervisor-task-form input,
+.supervisor-task-form select,
+.supervisor-task-form textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #dce5ef;
+  border-radius: 7px;
+  outline: 0;
+  color: #334155;
+  background: #fff;
+  font: inherit;
+  font-size: 10px;
+}
+
+.supervisor-revision-field textarea,
+.supervisor-task-form textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.supervisor-revision-field textarea:focus,
+.supervisor-task-form input:focus,
+.supervisor-task-form select:focus,
+.supervisor-task-form textarea:focus {
+  border-color: #4a85dc;
+  box-shadow: 0 0 0 3px #3b82f61a;
+}
+
+.supervisor-modal-error {
+  margin: 10px 0 0;
+  color: #b43e3e;
+  font-size: 9px;
+}
+
+.supervisor-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid #edf1f5;
+}
+
+.supervisor-task-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.supervisor-task-form > .wide {
+  grid-column: 1 / -1;
+}
+
+.staff-notification-read {
+  align-self: center;
+  padding: 5px 7px;
+  border: 1px solid #dce5ef;
+  border-radius: 6px;
+  color: #3b65a1;
+  background: white;
+  font: inherit;
+  font-size: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .supervisor-plan-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .supervisor-plan-actions {
+    justify-content: flex-start;
+  }
+
+  .supervisor-plan-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .supervisor-plan-list {
+    padding: 0 13px 8px;
+  }
+
+  .supervisor-modal-backdrop {
+    align-items: start;
+    padding: 10px;
+  }
+
+  .supervisor-workflow-modal {
+    max-height: calc(100vh - 20px);
+    padding: 15px;
+  }
+
+  .supervisor-modal-heading {
+    flex-wrap: wrap;
+  }
+
+  .supervisor-modal-heading > .staff-icon-button {
+    margin-left: auto;
+  }
+
+  .supervisor-plan-notes,
+  .supervisor-task-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .supervisor-task-form > .wide {
+    grid-column: auto;
+  }
+}

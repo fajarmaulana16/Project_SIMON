@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, BarChart3, RefreshCw } from "lucide-react";
+import { AlertTriangle, BarChart3 } from "lucide-react";
 import "./AdminReports.css";
 
 const API_URL =
@@ -24,28 +24,6 @@ export default function AdminReports({ token }) {
   const [reports, setReports] = useState({ projects: [], deadlines: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  async function loadReports() {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch(`${API_URL}/admin/reports`, {
-        headers: { Authorization: `Bearer ${token || ""}` },
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Gagal memuat laporan.");
-      setReports({
-        projects: data.projects || [],
-        deadlines: data.deadlines || [],
-      });
-    } catch (requestError) {
-      setError(requestError instanceof TypeError
-        ? "Backend tidak dapat dihubungi. Pastikan server berjalan."
-        : requestError.message || "Gagal memuat laporan.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   useEffect(() => {
     let active = true;
@@ -80,16 +58,6 @@ export default function AdminReports({ token }) {
 
   return (
     <section className="admin-reports">
-      <div className="admin-report-heading">
-        <div>
-          <h2>Laporan & Analisis</h2>
-          <p>Ringkasan proyek dan pemantauan tenggat berdasarkan view database SIMON.</p>
-        </div>
-        <button type="button" onClick={loadReports} disabled={loading}>
-          <RefreshCw size={15} /> Muat ulang
-        </button>
-      </div>
-
       {error && <div className="admin-report-error" role="alert"><AlertTriangle size={17} />{error}</div>}
 
       <section className="content-card admin-report-card">

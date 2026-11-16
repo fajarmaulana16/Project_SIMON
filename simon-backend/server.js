@@ -148,7 +148,7 @@ async function requirePlanner(req, res, next) {
     }
 
     const [users] = await pool.execute(
-      `SELECT u.id
+      `SELECT u.id, u.divisi_id
        FROM users u
        JOIN roles r ON r.id = u.role_id
        WHERE u.id = ? AND u.aktif = 1 AND r.kode = 'planner'
@@ -162,7 +162,14 @@ async function requirePlanner(req, res, next) {
       });
     }
 
+    if (!users[0].divisi_id) {
+      return res.status(403).json({
+        message: "Akun Planner harus ditetapkan ke divisi terlebih dahulu."
+      });
+    }
+
     req.plannerUserId = Number(users[0].id);
+    req.plannerDivisionId = Number(users[0].divisi_id);
     return next();
   } catch (error) {
     if (
@@ -248,7 +255,7 @@ async function requireSupervisor(req, res, next) {
     }
 
     const [users] = await pool.execute(
-      `SELECT u.id
+      `SELECT u.id, u.divisi_id
        FROM users u
        JOIN roles r ON r.id = u.role_id
        WHERE u.id = ? AND u.aktif = 1 AND r.kode = 'supervisor'
@@ -262,7 +269,14 @@ async function requireSupervisor(req, res, next) {
       });
     }
 
+    if (!users[0].divisi_id) {
+      return res.status(403).json({
+        message: "Akun Supervisor harus ditetapkan ke divisi terlebih dahulu."
+      });
+    }
+
     req.supervisorUserId = Number(users[0].id);
+    req.supervisorDivisionId = Number(users[0].divisi_id);
     return next();
   } catch (error) {
     if (
@@ -344,6 +358,14 @@ function validEmail(value) {
   return typeof value === "string" &&
     value.length <= 150 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function validDateOnly(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 const adminResources = {
@@ -470,7 +492,7 @@ const adminResources = {
       { name: "tgl_rencana_mulai", label: "Tanggal mulai", type: "date", required: true },
       { name: "durasi_hari", label: "Durasi (hari)", type: "number", required: true, integer: true, min: 1, max: 65535 },
       { name: "pic_awal_id", label: "PIC awal", type: "lookup", lookup: "staff" },
-      { name: "status", label: "Status", type: "select", required: true, options: ["draft", "disetujui", "berjalan", "selesai", "dibatalkan"], default: "draft" },
+      { name: "status", label: "Status", type: "select", required: true, options: ["draft", "menunggu_review", "revisi", "disetujui", "berjalan", "selesai", "dibatalkan"], default: "draft" },
       { name: "alasan_batal", label: "Alasan batal", type: "text", maxLength: 255 }
     ],
     createdBy: true
@@ -540,6 +562,14 @@ const adminResources = {
     table: "pekerjaan_status_log",
     key: "id",
     columns: ["id", "pekerjaan_id", "status_lama", "status_baru", "alasan", "diubah_oleh", "created_at"],
+    fields: [],
+    readOnly: true
+  },
+  rencana_status_log: {
+    label: "Riwayat Status Rencana",
+    table: "rencana_status_log",
+    key: "id",
+    columns: ["id", "rencana_id", "status_lama", "status_baru", "catatan", "diubah_oleh", "created_at"],
     fields: [],
     readOnly: true
   },
@@ -691,7 +721,10 @@ async function savePlannerResource(req, res, resourceName, creating) {
     return res.status(400).json({ message: "ID data tidak valid." });
   }
 
-  const parsed = parseAdminResourceValues(resource, req.body, creating);
+  const requestBody = resourceName === "rencana_pekerjaan"
+    ? { ...req.body, status: creating ? "draft" : req.body?.status || "draft" }
+    : req.body;
+  const parsed = parseAdminResourceValues(resource, requestBody, creating);
   if (parsed.error) return res.status(400).json({ message: parsed.error });
   const values = parsed.values;
   if (creating) values.dibuat_oleh = req.plannerUserId;
@@ -709,37 +742,69 @@ async function savePlannerResource(req, res, resourceName, creating) {
     await connection.beginTransaction();
 
     if (!creating) {
-      const [ownedRows] = await connection.execute(
-        `SELECT id FROM \`${resource.table}\`
-         WHERE id = ? AND dibuat_oleh = ? FOR UPDATE`,
-        [itemId, req.plannerUserId]
-      );
-      if (!ownedRows.length) {
+      const [divisionRows] = resourceName === "proyek"
+        ? await connection.execute(
+          `SELECT pr.id
+           FROM proyek pr
+           JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+           WHERE pr.id = ? AND project_owner.divisi_id = ?
+           FOR UPDATE`,
+          [itemId, req.plannerDivisionId]
+        )
+        : await connection.execute(
+          `SELECT rp.id, rp.status
+           FROM rencana_pekerjaan rp
+           JOIN proyek pr ON pr.id = rp.proyek_id
+           JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+           WHERE rp.id = ? AND project_owner.divisi_id = ?
+           FOR UPDATE`,
+          [itemId, req.plannerDivisionId]
+        );
+      if (!divisionRows.length) {
         await connection.rollback();
         return res.status(404).json({ message: "Data tidak ditemukan." });
       }
+      if (resourceName === "rencana_pekerjaan") {
+        if (!["draft", "revisi"].includes(divisionRows[0].status)) {
+          await connection.rollback();
+          return res.status(409).json({
+            message: "Rencana hanya dapat diubah saat berstatus Draft atau Revisi."
+          });
+        }
+        values.status = divisionRows[0].status;
+      }
     }
+    if (resourceName === "rencana_pekerjaan" && creating) values.status = "draft";
 
     if (resourceName === "rencana_pekerjaan") {
       const [projects] = await connection.execute(
-        "SELECT id FROM proyek WHERE id = ? AND dibuat_oleh = ? LIMIT 1",
-        [values.proyek_id, req.plannerUserId]
+        `SELECT pr.id
+         FROM proyek pr
+         JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+         WHERE pr.id = ? AND project_owner.divisi_id = ?
+         LIMIT 1`,
+        [values.proyek_id, req.plannerDivisionId]
       );
       if (!projects.length) {
         await connection.rollback();
         return res.status(400).json({
-          message: "Pilih proyek yang dibuat oleh akun Planner ini."
+          message: "Pilih proyek dari divisi Anda."
         });
       }
       if (values.rencana_asal_id !== null) {
         const [originPlans] = await connection.execute(
-          "SELECT id FROM rencana_pekerjaan WHERE id = ? AND dibuat_oleh = ? LIMIT 1",
-          [values.rencana_asal_id, req.plannerUserId]
+          `SELECT rp.id
+           FROM rencana_pekerjaan rp
+           JOIN proyek pr ON pr.id = rp.proyek_id
+           JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+           WHERE rp.id = ? AND project_owner.divisi_id = ?
+           LIMIT 1`,
+          [values.rencana_asal_id, req.plannerDivisionId]
         );
         if (!originPlans.length) {
           await connection.rollback();
           return res.status(400).json({
-            message: "Rencana asal tidak ditemukan pada akun Planner ini."
+            message: "Rencana asal tidak ditemukan pada divisi Anda."
           });
         }
       }
@@ -755,6 +820,14 @@ async function savePlannerResource(req, res, resourceName, creating) {
         fields.map((field) => values[field])
       );
       id = result.insertId;
+      if (resourceName === "rencana_pekerjaan") {
+        await connection.execute(
+          `INSERT INTO rencana_status_log
+             (rencana_id, status_lama, status_baru, diubah_oleh)
+           VALUES (?, NULL, 'draft', ?)`,
+          [id, req.plannerUserId]
+        );
+      }
     } else {
       const fields = Object.keys(values).filter((field) =>
         field !== "dibuat_oleh" &&
@@ -763,14 +836,14 @@ async function savePlannerResource(req, res, resourceName, creating) {
       const [result] = await connection.execute(
         `UPDATE \`${resource.table}\`
          SET ${fields.map((field) => `\`${field}\` = ?`).join(", ")}
-         WHERE id = ? AND dibuat_oleh = ?`,
-        [...fields.map((field) => values[field]), itemId, req.plannerUserId]
+         WHERE id = ?`,
+        [...fields.map((field) => values[field]), itemId]
       );
       if (result.affectedRows === 0) {
         const [existingRows] = await connection.execute(
           `SELECT id FROM \`${resource.table}\`
-           WHERE id = ? AND dibuat_oleh = ? LIMIT 1`,
-          [itemId, req.plannerUserId]
+           WHERE id = ? LIMIT 1`,
+          [itemId]
         );
         if (!existingRows.length) {
           await connection.rollback();
@@ -816,16 +889,57 @@ async function deletePlannerResource(req, res, resourceName) {
     return res.status(400).json({ message: "ID data tidak valid." });
   }
 
+  let connection;
   try {
-    const [result] = await pool.execute(
-      `DELETE FROM \`${resource.table}\` WHERE id = ? AND dibuat_oleh = ?`,
-      [itemId, req.plannerUserId]
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    if (resourceName === "rencana_pekerjaan") {
+      const [plans] = await connection.execute(
+        `SELECT rp.status
+         FROM rencana_pekerjaan rp
+         JOIN proyek pr ON pr.id = rp.proyek_id
+         JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+         WHERE rp.id = ? AND project_owner.divisi_id = ?
+         FOR UPDATE`,
+        [itemId, req.plannerDivisionId]
+      );
+      if (!plans.length) {
+        await connection.rollback();
+        return res.status(404).json({ message: "Data tidak ditemukan." });
+      }
+      if (!["draft", "revisi"].includes(plans[0].status)) {
+        await connection.rollback();
+        return res.status(409).json({
+          message: "Rencana hanya dapat dihapus saat berstatus Draft atau Revisi."
+        });
+      }
+    } else {
+      const [projects] = await connection.execute(
+        `SELECT pr.id
+         FROM proyek pr
+         JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+         WHERE pr.id = ? AND project_owner.divisi_id = ?
+         FOR UPDATE`,
+        [itemId, req.plannerDivisionId]
+      );
+      if (!projects.length) {
+        await connection.rollback();
+        return res.status(404).json({ message: "Data tidak ditemukan." });
+      }
+    }
+
+    const [result] = await connection.execute(
+      `DELETE FROM \`${resource.table}\` WHERE id = ?`,
+      [itemId]
     );
     if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ message: "Data tidak ditemukan." });
     }
+    await connection.commit();
     return res.json({ message: `${resource.label} berhasil dihapus.` });
   } catch (error) {
+    if (connection) await connection.rollback();
     if (error.code === "ER_ROW_IS_REFERENCED_2" || error.code === "ER_ROW_IS_REFERENCED") {
       return res.status(409).json({
         message: `${resource.label} masih digunakan oleh data lain dan tidak dapat dihapus.`
@@ -833,6 +947,8 @@ async function deletePlannerResource(req, res, resourceName) {
     }
     console.error(`Planner ${resource.label} delete error:`, error);
     return res.status(500).json({ message: `Gagal menghapus ${resource.label}.` });
+  } finally {
+    if (connection) connection.release();
   }
 }
 
@@ -854,6 +970,458 @@ app.put("/api/planner/plans/:id", requirePlanner, (req, res) =>
 app.delete("/api/planner/plans/:id", requirePlanner, (req, res) =>
   deletePlannerResource(req, res, "rencana_pekerjaan")
 );
+
+app.post("/api/planner/plans/:id/submit", requirePlanner, async (req, res) => {
+  const planId = Number(req.params.id);
+  if (!Number.isSafeInteger(planId) || planId < 1) {
+    return res.status(400).json({ message: "ID rencana tidak valid." });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [plans] = await connection.execute(
+      `SELECT rp.id, rp.status, rp.dibuat_oleh, rp.proyek_id, rp.tipe_rencana,
+              rp.tahun_plan, rp.jangka, rp.jenis_id, rp.prioritas_id, rp.judul,
+              rp.tgl_rencana_mulai, rp.durasi_hari, rp.ruang_lingkup, rp.target,
+              rp.dasar_permintaan
+       FROM rencana_pekerjaan rp
+       JOIN proyek pr ON pr.id = rp.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE rp.id = ? AND project_owner.divisi_id = ?
+       FOR UPDATE`,
+      [planId, req.plannerDivisionId]
+    );
+    if (!plans.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Rencana tidak ditemukan pada divisi Anda." });
+    }
+
+    const plan = plans[0];
+    if (!["draft", "revisi"].includes(plan.status)) {
+      await connection.rollback();
+      return res.status(409).json({
+        message: "Hanya rencana Draft atau Revisi yang dapat dikirim untuk ditinjau."
+      });
+    }
+
+    const requiredValues = [
+      ["Proyek", plan.proyek_id],
+      ["Tipe rencana", plan.tipe_rencana],
+      ["Jangka", plan.jangka],
+      ["Jenis pekerjaan", plan.jenis_id],
+      ["Prioritas", plan.prioritas_id],
+      ["Judul", plan.judul],
+      ["Tanggal rencana mulai", plan.tgl_rencana_mulai],
+      ["Durasi", plan.durasi_hari],
+    ];
+    const missingValue = requiredValues.find(([, value]) =>
+      value === null || value === undefined || String(value).trim() === ""
+    );
+    if (missingValue) {
+      await connection.rollback();
+      return res.status(400).json({
+        message: `${missingValue[0]} wajib dilengkapi sebelum rencana dikirim.`
+      });
+    }
+    if (!Number.isInteger(Number(plan.durasi_hari)) || Number(plan.durasi_hari) < 1) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Durasi rencana harus lebih dari 0 hari." });
+    }
+
+    const [supervisors] = await connection.execute(
+      `SELECT u.id
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.divisi_id = ? AND u.aktif = 1 AND r.kode = 'supervisor'
+       ORDER BY u.id`,
+      [req.plannerDivisionId]
+    );
+    if (!supervisors.length) {
+      await connection.rollback();
+      return res.status(409).json({
+        message: "Belum ada Supervisor aktif pada divisi Anda untuk menerima rencana."
+      });
+    }
+
+    await connection.execute(
+      "UPDATE rencana_pekerjaan SET status = 'menunggu_review' WHERE id = ?",
+      [planId]
+    );
+    await connection.execute(
+      `INSERT INTO rencana_status_log
+         (rencana_id, status_lama, status_baru, diubah_oleh)
+       VALUES (?, ?, 'menunggu_review', ?)`,
+      [planId, plan.status, req.plannerUserId]
+    );
+    const notification = `Rencana "${plan.judul}" menunggu pemeriksaan Supervisor.`.slice(0, 255);
+    for (const supervisor of supervisors) {
+      await connection.execute(
+        `INSERT INTO notifikasi (user_id, rencana_id, tipe, pesan)
+         VALUES (?, ?, 'rencana_baru', ?)`,
+        [supervisor.id, planId, notification]
+      );
+    }
+
+    await connection.commit();
+    return res.json({ message: "Rencana berhasil dikirim kepada Supervisor." });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error("Planner plan submission error:", error);
+    return res.status(500).json({ message: "Gagal mengirim rencana kepada Supervisor." });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+async function getPlanHistory(req, res, planId, divisionId) {
+  if (!Number.isSafeInteger(planId) || planId < 1) {
+    return res.status(400).json({ message: "ID rencana tidak valid." });
+  }
+  try {
+    const [plans] = await pool.execute(
+      `SELECT rp.id
+       FROM rencana_pekerjaan rp
+       JOIN proyek pr ON pr.id = rp.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE rp.id = ? AND project_owner.divisi_id = ?
+       LIMIT 1`,
+      [planId, divisionId]
+    );
+    if (!plans.length) {
+      return res.status(404).json({ message: "Rencana tidak ditemukan pada divisi Anda." });
+    }
+    const [history] = await pool.execute(
+      `SELECT log.id, log.status_lama, log.status_baru, log.catatan,
+              log.created_at, actor.nama AS diubah_oleh
+       FROM rencana_status_log log
+       LEFT JOIN users actor ON actor.id = log.diubah_oleh
+       WHERE log.rencana_id = ?
+       ORDER BY log.created_at DESC, log.id DESC`,
+      [planId]
+    );
+    return res.json({ history });
+  } catch (error) {
+    console.error("Plan status history error:", error);
+    return res.status(500).json({ message: "Gagal mengambil riwayat rencana." });
+  }
+}
+
+app.get("/api/planner/plans/:id/history", requirePlanner, (req, res) =>
+  getPlanHistory(req, res, Number(req.params.id), req.plannerDivisionId)
+);
+
+app.get("/api/supervisor/plans/:id/history", requireSupervisor, (req, res) =>
+  getPlanHistory(req, res, Number(req.params.id), req.supervisorDivisionId)
+);
+
+async function markNotificationRead(req, res, userId) {
+  const notificationId = Number(req.params.id);
+  if (!Number.isSafeInteger(notificationId) || notificationId < 1) {
+    return res.status(400).json({ message: "ID notifikasi tidak valid." });
+  }
+  try {
+    const [notifications] = await pool.execute(
+      "SELECT id FROM notifikasi WHERE id = ? AND user_id = ? LIMIT 1",
+      [notificationId, userId]
+    );
+    if (!notifications.length) {
+      return res.status(404).json({ message: "Notifikasi tidak ditemukan." });
+    }
+    await pool.execute(
+      `UPDATE notifikasi
+       SET dibaca_at = COALESCE(dibaca_at, CURRENT_TIMESTAMP)
+       WHERE id = ? AND user_id = ?`,
+      [notificationId, userId]
+    );
+    return res.json({ message: "Notifikasi ditandai sudah dibaca." });
+  } catch (error) {
+    console.error("Notification read update error:", error);
+    return res.status(500).json({ message: "Gagal memperbarui notifikasi." });
+  }
+}
+
+app.post("/api/planner/notifications/:id/read", requirePlanner, (req, res) =>
+  markNotificationRead(req, res, req.plannerUserId)
+);
+
+app.post("/api/supervisor/notifications/:id/read", requireSupervisor, (req, res) =>
+  markNotificationRead(req, res, req.supervisorUserId)
+);
+
+app.post("/api/supervisor/plans/:id/review", requireSupervisor, async (req, res) => {
+  const planId = Number(req.params.id);
+  const action = req.body?.action;
+  const note = typeof req.body?.catatan === "string" ? req.body.catatan.trim() : "";
+  if (!Number.isSafeInteger(planId) || planId < 1) {
+    return res.status(400).json({ message: "ID rencana tidak valid." });
+  }
+  if (!["approve", "revision"].includes(action)) {
+    return res.status(400).json({ message: "Tindakan pemeriksaan tidak valid." });
+  }
+  if (action === "revision" && !note) {
+    return res.status(400).json({ message: "Catatan revisi wajib diisi." });
+  }
+  if (note.length > 5000) {
+    return res.status(400).json({ message: "Catatan pemeriksaan maksimal 5000 karakter." });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [plans] = await connection.execute(
+      `SELECT rp.id, rp.status, rp.dibuat_oleh, rp.judul
+       FROM rencana_pekerjaan rp
+       JOIN proyek pr ON pr.id = rp.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE rp.id = ? AND project_owner.divisi_id = ?
+       FOR UPDATE`,
+      [planId, req.supervisorDivisionId]
+    );
+    if (!plans.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Rencana tidak ditemukan pada divisi Anda." });
+    }
+    const plan = plans[0];
+    if (Number(plan.dibuat_oleh) === req.supervisorUserId) {
+      await connection.rollback();
+      return res.status(403).json({ message: "Supervisor tidak dapat menyetujui rencananya sendiri." });
+    }
+    if (plan.status !== "menunggu_review") {
+      await connection.rollback();
+      return res.status(409).json({ message: "Rencana ini tidak sedang menunggu pemeriksaan." });
+    }
+
+    const nextStatus = action === "approve" ? "disetujui" : "revisi";
+    await connection.execute(
+      `UPDATE rencana_pekerjaan
+       SET status = ?,
+           disetujui_oleh = ?,
+           tgl_disetujui = IF(? = 'disetujui', CURRENT_TIMESTAMP, NULL)
+       WHERE id = ?`,
+      [
+        nextStatus,
+        action === "approve" ? req.supervisorUserId : null,
+        nextStatus,
+        planId
+      ]
+    );
+    await connection.execute(
+      `INSERT INTO rencana_status_log
+         (rencana_id, status_lama, status_baru, catatan, diubah_oleh)
+       VALUES (?, ?, ?, ?, ?)`,
+      [planId, plan.status, nextStatus, action === "revision" ? note : null, req.supervisorUserId]
+    );
+    const message = action === "approve"
+      ? `Rencana "${plan.judul}" telah disetujui Supervisor.`
+      : `Rencana "${plan.judul}" memerlukan revisi: ${note}`;
+    await connection.execute(
+      `INSERT INTO notifikasi (user_id, rencana_id, tipe, pesan)
+       VALUES (?, ?, 'rencana_baru', ?)`,
+      [plan.dibuat_oleh, planId, message.slice(0, 255)]
+    );
+
+    await connection.commit();
+    return res.json({
+      message: action === "approve"
+        ? "Rencana berhasil disetujui."
+        : "Catatan revisi berhasil dikirim kepada Planner.",
+      status: nextStatus
+    });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error("Supervisor plan review error:", error);
+    return res.status(500).json({ message: "Gagal memproses pemeriksaan rencana." });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+app.post("/api/supervisor/plans/:id/tasks", requireSupervisor, async (req, res) => {
+  const planId = Number(req.params.id);
+  const staffId = parseNullableId(req.body?.penanggung_jawab_id);
+  const priorityId = parseNullableId(req.body?.prioritas_id);
+  const taskName = typeof req.body?.nama_pekerjaan === "string"
+    ? req.body.nama_pekerjaan.trim()
+    : "";
+  const description = typeof req.body?.deskripsi === "string" ? req.body.deskripsi.trim() : "";
+  const target = typeof req.body?.target === "string" ? req.body.target.trim() : "";
+  const startDate = req.body?.tgl_mulai;
+  const deadline = req.body?.deadline;
+  const idempotencyKey = req.body?.idempotency_key;
+
+  if (!Number.isSafeInteger(planId) || planId < 1) {
+    return res.status(400).json({ message: "ID rencana tidak valid." });
+  }
+  if (!staffId || Number.isNaN(staffId) ||
+      typeof idempotencyKey !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+    return res.status(400).json({ message: "Staff dan kunci permintaan pekerjaan wajib valid." });
+  }
+  if (!taskName || taskName.length > 500) {
+    return res.status(400).json({ message: "Judul pekerjaan wajib diisi (maksimal 500 karakter)." });
+  }
+  if (description.length > 5000 || target.length > 5000) {
+    return res.status(400).json({ message: "Deskripsi dan target masing-masing maksimal 5000 karakter." });
+  }
+  if (!validDateOnly(startDate) || !validDateOnly(deadline) || deadline < startDate) {
+    return res.status(400).json({ message: "Tanggal pekerjaan tidak valid atau tenggat mendahului tanggal mulai." });
+  }
+  if (!priorityId || Number.isNaN(priorityId)) {
+    return res.status(400).json({ message: "Prioritas pekerjaan wajib dipilih." });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [existingTasks] = await connection.execute(
+      `SELECT id
+       FROM pekerjaan
+       WHERE idempotency_key = ? AND supervisor_id = ?
+       LIMIT 1`,
+      [idempotencyKey, req.supervisorUserId]
+    );
+    if (existingTasks.length) {
+      await connection.rollback();
+      return res.json({
+        message: "Pekerjaan ini sudah dibuat.",
+        id: existingTasks[0].id,
+        duplicate: true
+      });
+    }
+
+    const [plans] = await connection.execute(
+      `SELECT rp.*
+       FROM rencana_pekerjaan rp
+       JOIN proyek pr ON pr.id = rp.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE rp.id = ? AND project_owner.divisi_id = ?
+       FOR UPDATE`,
+      [planId, req.supervisorDivisionId]
+    );
+    if (!plans.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Rencana tidak ditemukan pada divisi Anda." });
+    }
+    const plan = plans[0];
+    if (!["disetujui", "berjalan"].includes(plan.status)) {
+      await connection.rollback();
+      return res.status(409).json({ message: "Pekerjaan hanya dapat dibuat dari rencana yang disetujui." });
+    }
+
+    const [staffRows] = await connection.execute(
+      `SELECT staff.id
+       FROM users staff
+       JOIN roles staff_role ON staff_role.id = staff.role_id
+       WHERE staff.id = ? AND staff.divisi_id = ? AND staff.supervisor_id = ?
+         AND staff.aktif = 1 AND staff_role.kode = 'staff'
+       LIMIT 1`,
+      [staffId, req.supervisorDivisionId, req.supervisorUserId]
+    );
+    if (!staffRows.length) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Staff harus aktif, satu divisi, dan berada dalam tim Anda." });
+    }
+    const [priorities] = await connection.execute(
+      "SELECT id FROM prioritas WHERE id = ? LIMIT 1",
+      [priorityId]
+    );
+    if (!priorities.length) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Prioritas pekerjaan tidak tersedia." });
+    }
+
+    const taskCode = `JOB-${randomUUID().replaceAll("-", "").slice(0, 20).toUpperCase()}`;
+    const taskDescription = [
+      description,
+      target ? `Target pekerjaan:\n${target}` : ""
+    ].filter(Boolean).join("\n\n") || null;
+    const [result] = await connection.execute(
+      `INSERT INTO pekerjaan
+         (kode, idempotency_key, proyek_id, rencana_id, jenis_id, fungsi_id,
+          divisi_id, prioritas_id, nama_pekerjaan, deskripsi, dasar_permintaan,
+          media_permintaan, penanggung_jawab_id, supervisor_id, tgl_mulai,
+          deadline, dibuat_oleh)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        taskCode,
+        idempotencyKey,
+        plan.proyek_id,
+        plan.id,
+        plan.jenis_id,
+        plan.fungsi_id,
+        req.supervisorDivisionId,
+        priorityId,
+        taskName,
+        taskDescription,
+        plan.dasar_permintaan,
+        plan.media_permintaan,
+        staffId,
+        req.supervisorUserId,
+        startDate,
+        deadline,
+        req.supervisorUserId
+      ]
+    );
+
+    if (plan.status === "disetujui") {
+      await connection.execute(
+        "UPDATE rencana_pekerjaan SET status = 'berjalan' WHERE id = ?",
+        [planId]
+      );
+      await connection.execute(
+        `INSERT INTO rencana_status_log
+           (rencana_id, status_lama, status_baru, diubah_oleh)
+         VALUES (?, 'disetujui', 'berjalan', ?)`,
+        [planId, req.supervisorUserId]
+      );
+    }
+    await connection.execute(
+      `INSERT INTO notifikasi (user_id, pekerjaan_id, tipe, pesan)
+       VALUES (?, ?, 'rencana_baru', ?)`,
+      [staffId, result.insertId, `Pekerjaan "${taskName}" ditugaskan kepada Anda.`.slice(0, 255)]
+    );
+
+    await connection.commit();
+    return res.status(201).json({
+      message: "Pekerjaan berhasil dibuat dan ditugaskan kepada Staff.",
+      id: result.insertId
+    });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    if (error.code === "ER_DUP_ENTRY" && idempotencyKey) {
+      try {
+        const [existingTasks] = await pool.execute(
+          `SELECT id
+           FROM pekerjaan
+           WHERE idempotency_key = ? AND supervisor_id = ?
+           LIMIT 1`,
+          [idempotencyKey, req.supervisorUserId]
+        );
+        if (existingTasks.length) {
+          return res.json({
+            message: "Pekerjaan ini sudah dibuat.",
+            id: existingTasks[0].id,
+            duplicate: true
+          });
+        }
+      } catch (lookupError) {
+        console.error("Task idempotency lookup error:", lookupError);
+      }
+    }
+    console.error("Supervisor create task error:", error);
+    return res.status(error.code === "ER_DUP_ENTRY" ? 409 : 500).json({
+      message: error.code === "ER_DUP_ENTRY"
+        ? "Kunci permintaan pekerjaan sudah digunakan."
+        : "Gagal membuat pekerjaan untuk Staff."
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+});
 
 app.get("/api/admin/modules", requireAdmin, async (req, res) => {
   try {
@@ -1234,19 +1802,25 @@ app.get("/api/planner/dashboard", requirePlanner, async (req, res) => {
       `SELECT
          COUNT(*) AS total_rencana,
          COALESCE(SUM(rp.status = 'draft'), 0) AS rencana_draft,
+         COALESCE(SUM(rp.status = 'menunggu_review'), 0) AS rencana_menunggu_review,
+         COALESCE(SUM(rp.status = 'revisi'), 0) AS rencana_revisi,
+         COALESCE(SUM(rp.status = 'disetujui'), 0) AS rencana_disetujui,
          COALESCE(SUM(rp.status IN ('disetujui', 'berjalan')), 0) AS rencana_berjalan,
          COALESCE(SUM(rp.status = 'selesai'), 0) AS rencana_selesai
        FROM rencana_pekerjaan rp
-       WHERE rp.dibuat_oleh = ?`,
-      [req.plannerUserId]
+       JOIN proyek pr ON pr.id = rp.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE project_owner.divisi_id = ?`,
+      [req.plannerDivisionId]
     );
     const [projectRows] = await pool.execute(
       `SELECT
          COUNT(*) AS total_proyek,
          COALESCE(SUM(pr.status = 'aktif'), 0) AS proyek_aktif
        FROM proyek pr
-       WHERE pr.dibuat_oleh = ?`,
-      [req.plannerUserId]
+      JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+      WHERE project_owner.divisi_id = ?`,
+      [req.plannerDivisionId]
     );
     const [plans] = await pool.execute(
       `SELECT
@@ -1292,10 +1866,11 @@ app.get("/api/planner/dashboard", requirePlanner, async (req, res) => {
          WHERE rencana_id IS NOT NULL
          GROUP BY rencana_id
        ) work ON work.rencana_id = rp.id
-       WHERE rp.dibuat_oleh = ?
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE project_owner.divisi_id = ?
        ORDER BY rp.updated_at DESC, rp.id DESC
       `,
-      [req.plannerUserId]
+      [req.plannerDivisionId]
     );
     const [projects] = await pool.execute(
       `SELECT
@@ -1313,15 +1888,15 @@ app.get("/api/planner/dashboard", requirePlanner, async (req, res) => {
        LEFT JOIN (
          SELECT proyek_id, COUNT(*) AS jumlah_rencana
          FROM rencana_pekerjaan
-         WHERE dibuat_oleh = ?
          GROUP BY proyek_id
        ) plan_counts ON plan_counts.proyek_id = pr.id
-       WHERE pr.dibuat_oleh = ?
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE project_owner.divisi_id = ?
        ORDER BY
          CASE pr.status WHEN 'aktif' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,
          pr.tahun DESC,
          pr.updated_at DESC`,
-      [req.plannerUserId, req.plannerUserId]
+      [req.plannerDivisionId]
     );
     const [jenisPekerjaan] = await pool.execute(
       "SELECT id, kode, nama FROM jenis_pekerjaan WHERE aktif = 1 ORDER BY nama"
@@ -1336,8 +1911,81 @@ app.get("/api/planner/dashboard", requirePlanner, async (req, res) => {
       `SELECT u.id, u.nama, u.username
        FROM users u
        JOIN roles r ON r.id = u.role_id
-       WHERE u.aktif = 1 AND r.kode = 'staff'
-       ORDER BY u.nama`
+       WHERE u.aktif = 1 AND r.kode = 'staff' AND u.divisi_id = ?
+       ORDER BY u.nama`,
+      [req.plannerDivisionId]
+    );
+    const [evaluationRows] = await pool.execute(
+      `SELECT
+         COUNT(DISTINCT ep.pekerjaan_id) AS jumlah_dievaluasi,
+         COALESCE(ROUND(AVG(ep.skor_akhir), 2), 0) AS rata_rata
+       FROM evaluasi_pekerjaan ep
+       JOIN pekerjaan pk ON pk.id = ep.pekerjaan_id
+       JOIN proyek pr ON pr.id = pk.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE project_owner.divisi_id = ?`,
+      [req.plannerDivisionId]
+    );
+    const [evaluationSummaries] = await pool.execute(
+      `SELECT
+         re.tahun,
+         re.bulan,
+         re.jenis_periode,
+         re.jumlah_dievaluasi,
+         re.rata_skor,
+         re.ringkasan,
+         re.rekomendasi_perencanaan,
+         pr.nama AS nama_proyek
+       FROM ringkasan_evaluasi re
+       JOIN proyek pr ON pr.id = re.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE project_owner.divisi_id = ?
+       ORDER BY re.tahun DESC, re.bulan DESC, re.updated_at DESC, re.id DESC
+       LIMIT 1`,
+      [req.plannerDivisionId]
+    );
+    const [latestEvaluations] = await pool.execute(
+      `SELECT
+         ep.id,
+         ep.catatan,
+         ep.rekomendasi,
+         ep.tgl_evaluasi,
+         pk.nama_pekerjaan,
+         pr.nama AS nama_proyek
+       FROM evaluasi_pekerjaan ep
+       JOIN pekerjaan pk ON pk.id = ep.pekerjaan_id
+       JOIN proyek pr ON pr.id = pk.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE project_owner.divisi_id = ?
+       ORDER BY ep.tgl_evaluasi DESC, ep.id DESC
+       LIMIT 1`,
+      [req.plannerDivisionId]
+    );
+    let evaluationCriteria = [];
+    if (latestEvaluations.length) {
+      const [criteriaRows] = await pool.execute(
+        `SELECT ke.nama, ke.bobot, en.skor, en.catatan
+         FROM evaluasi_nilai en
+         JOIN kriteria_evaluasi ke ON ke.id = en.kriteria_id
+         JOIN evaluasi_pekerjaan ep ON ep.id = en.evaluasi_id
+         JOIN pekerjaan pk ON pk.id = ep.pekerjaan_id
+         JOIN proyek pr ON pr.id = pk.proyek_id
+         JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+         WHERE en.evaluasi_id = ? AND project_owner.divisi_id = ?
+         ORDER BY ke.nama`,
+        [latestEvaluations[0].id, req.plannerDivisionId]
+      );
+      evaluationCriteria = criteriaRows;
+    }
+    const [notifications] = await pool.execute(
+      `SELECT n.id, n.rencana_id, n.tipe, n.pesan, n.dibaca_at, n.created_at,
+              rp.judul AS judul_rencana
+       FROM notifikasi n
+       LEFT JOIN rencana_pekerjaan rp ON rp.id = n.rencana_id
+       WHERE n.user_id = ?
+       ORDER BY n.created_at DESC, n.id DESC
+       LIMIT 8`,
+      [req.plannerUserId]
     );
 
     return res.json({
@@ -1345,8 +1993,15 @@ app.get("/api/planner/dashboard", requirePlanner, async (req, res) => {
         ...summaryRows[0],
         ...projectRows[0]
       },
+      evaluation: {
+        ...evaluationRows[0],
+        summary: evaluationSummaries[0] || null,
+        latest: latestEvaluations[0] || null,
+        criteria: evaluationCriteria
+      },
       plans,
       projects,
+      notifications,
       options: { jenisPekerjaan, fungsi, prioritas, staff }
     });
   } catch (error) {
@@ -1897,7 +2552,10 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
            SELECT COUNT(*)
            FROM progres_log pl
            JOIN pekerjaan review_task ON review_task.id = pl.pekerjaan_id
+           JOIN proyek review_project ON review_project.id = review_task.proyek_id
+           JOIN users project_owner ON project_owner.id = review_project.dibuat_oleh
            WHERE review_task.supervisor_id = ?
+             AND project_owner.divisi_id = ?
              AND pl.status_verifikasi = 'menunggu'
          ) AS menunggu_verifikasi,
          (
@@ -1905,12 +2563,31 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
            FROM users team_staff
            JOIN roles team_role ON team_role.id = team_staff.role_id
            WHERE team_staff.supervisor_id = ?
+             AND team_staff.divisi_id = ?
              AND team_staff.aktif = 1
              AND team_role.kode = 'staff'
-         ) AS jumlah_staff
+         ) AS jumlah_staff,
+         (
+           SELECT COUNT(*)
+           FROM rencana_pekerjaan incoming
+           JOIN proyek incoming_project ON incoming_project.id = incoming.proyek_id
+           JOIN users project_owner ON project_owner.id = incoming_project.dibuat_oleh
+           WHERE project_owner.divisi_id = ?
+             AND incoming.status = 'menunggu_review'
+         ) AS rencana_menunggu_review
        FROM pekerjaan pk
-       WHERE pk.supervisor_id = ?`,
-      [req.supervisorUserId, req.supervisorUserId, req.supervisorUserId]
+       JOIN proyek pr ON pr.id = pk.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       WHERE pk.supervisor_id = ? AND project_owner.divisi_id = ?`,
+      [
+        req.supervisorUserId,
+        req.supervisorDivisionId,
+        req.supervisorUserId,
+        req.supervisorDivisionId,
+        req.supervisorDivisionId,
+        req.supervisorUserId,
+        req.supervisorDivisionId
+      ]
     );
 
     const [tasks] = await pool.execute(
@@ -1932,6 +2609,7 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
          latest.tanggal_update AS progres_diperbarui
        FROM pekerjaan pk
        JOIN proyek pr ON pr.id = pk.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
        JOIN prioritas p ON p.id = pk.prioritas_id
        LEFT JOIN divisi d ON d.id = pk.divisi_id
        JOIN users staff ON staff.id = pk.penanggung_jawab_id
@@ -1944,7 +2622,7 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
            GROUP BY pekerjaan_id
          ) latest_ids ON latest_ids.latest_id = pl.id
        ) latest ON latest.pekerjaan_id = pk.id
-       WHERE pk.supervisor_id = ?
+       WHERE pk.supervisor_id = ? AND project_owner.divisi_id = ?
        ORDER BY
          CASE
            WHEN pk.status NOT IN ('selesai', 'dibatalkan') AND pk.deadline < CURDATE() THEN 0
@@ -1955,7 +2633,7 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
          pk.deadline ASC,
          pk.updated_at DESC
        LIMIT 12`,
-      [req.supervisorUserId]
+      [req.supervisorUserId, req.supervisorDivisionId]
     );
 
     const [notifications] = await pool.execute(
@@ -1966,10 +2644,13 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
          n.dibaca_at,
          n.created_at,
          n.pekerjaan_id,
+         n.rencana_id,
          pk.kode AS kode_pekerjaan,
-         pk.nama_pekerjaan
+         pk.nama_pekerjaan,
+         rp.judul AS judul_rencana
        FROM notifikasi n
        LEFT JOIN pekerjaan pk ON pk.id = n.pekerjaan_id
+       LEFT JOIN rencana_pekerjaan rp ON rp.id = n.rencana_id
        WHERE n.user_id = ?
        ORDER BY n.created_at DESC, n.id DESC
        LIMIT 6`,
@@ -1987,12 +2668,14 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
            FROM pekerjaan assigned
            WHERE assigned.penanggung_jawab_id = staff.id
              AND assigned.supervisor_id = ?
+             AND assigned.divisi_id = ?
          ) AS total_pekerjaan,
          (
            SELECT COUNT(*)
            FROM pekerjaan assigned
            WHERE assigned.penanggung_jawab_id = staff.id
              AND assigned.supervisor_id = ?
+             AND assigned.divisi_id = ?
              AND assigned.status IN ('belum_dimulai', 'berjalan', 'tertunda')
          ) AS pekerjaan_aktif,
          (
@@ -2000,6 +2683,7 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
            FROM pekerjaan assigned
            WHERE assigned.penanggung_jawab_id = staff.id
              AND assigned.supervisor_id = ?
+             AND assigned.divisi_id = ?
              AND assigned.status NOT IN ('selesai', 'dibatalkan')
              AND assigned.deadline < CURDATE()
          ) AS pekerjaan_terlambat,
@@ -2009,21 +2693,28 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
            JOIN pekerjaan assigned ON assigned.id = pl.pekerjaan_id
            WHERE assigned.penanggung_jawab_id = staff.id
              AND assigned.supervisor_id = ?
+             AND assigned.divisi_id = ?
          ) AS progres_terakhir
        FROM users staff
        JOIN roles staff_role ON staff_role.id = staff.role_id
        LEFT JOIN divisi d ON d.id = staff.divisi_id
        WHERE staff.supervisor_id = ?
+         AND staff.divisi_id = ?
          AND staff.aktif = 1
          AND staff_role.kode = 'staff'
        ORDER BY staff.nama ASC
        LIMIT 20`,
       [
         req.supervisorUserId,
+        req.supervisorDivisionId,
         req.supervisorUserId,
+        req.supervisorDivisionId,
         req.supervisorUserId,
+        req.supervisorDivisionId,
         req.supervisorUserId,
-        req.supervisorUserId
+        req.supervisorDivisionId,
+        req.supervisorUserId,
+        req.supervisorDivisionId
       ]
     );
 
@@ -2051,14 +2742,70 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
        FROM progres_log pl
        JOIN pekerjaan pk ON pk.id = pl.pekerjaan_id
        JOIN proyek pr ON pr.id = pk.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
        JOIN users staff ON staff.id = pl.diperbarui_oleh
-       WHERE pk.supervisor_id = ?
+       WHERE pk.supervisor_id = ? AND project_owner.divisi_id = ?
        ORDER BY
          CASE WHEN pl.status_verifikasi = 'menunggu' THEN 0 ELSE 1 END,
          pl.created_at DESC,
          pl.id DESC
        LIMIT 12`,
-      [req.supervisorUserId]
+      [req.supervisorUserId, req.supervisorDivisionId]
+    );
+
+    const [plans] = await pool.execute(
+      `SELECT
+         rp.id,
+         rp.proyek_id,
+         rp.tipe_rencana,
+         rp.tahun_plan,
+         rp.jangka,
+         rp.jenis_id,
+         rp.fungsi_id,
+         rp.prioritas_id,
+         rp.judul,
+         rp.ruang_lingkup,
+         rp.target,
+         rp.dasar_permintaan,
+         rp.media_permintaan,
+         rp.tgl_rencana_mulai,
+         rp.durasi_hari,
+         rp.tgl_rencana_selesai,
+         rp.pic_awal_id,
+         rp.status,
+         rp.dibuat_oleh,
+         rp.updated_at,
+         pr.kode AS kode_proyek,
+         pr.nama AS nama_proyek,
+         jp.nama AS jenis_pekerjaan,
+         p.nama AS prioritas,
+         planner.nama AS planner_nama,
+         pic.nama AS pic_awal_nama,
+         COALESCE(work.jumlah_pekerjaan, 0) AS jumlah_pekerjaan
+       FROM rencana_pekerjaan rp
+       JOIN proyek pr ON pr.id = rp.proyek_id
+       JOIN users project_owner ON project_owner.id = pr.dibuat_oleh
+       JOIN users planner ON planner.id = rp.dibuat_oleh
+       JOIN jenis_pekerjaan jp ON jp.id = rp.jenis_id
+       JOIN prioritas p ON p.id = rp.prioritas_id
+       LEFT JOIN users pic ON pic.id = rp.pic_awal_id
+       LEFT JOIN (
+         SELECT rencana_id, COUNT(*) AS jumlah_pekerjaan
+         FROM pekerjaan
+         WHERE rencana_id IS NOT NULL
+         GROUP BY rencana_id
+       ) work ON work.rencana_id = rp.id
+       WHERE project_owner.divisi_id = ?
+         AND rp.status IN ('menunggu_review', 'disetujui', 'berjalan')
+       ORDER BY
+         CASE rp.status WHEN 'menunggu_review' THEN 0 ELSE 1 END,
+         rp.updated_at DESC,
+         rp.id DESC
+       LIMIT 100`,
+      [req.supervisorDivisionId]
+    );
+    const [priorities] = await pool.execute(
+      "SELECT id, nama FROM prioritas ORDER BY id"
     );
 
     return res.json({
@@ -2066,7 +2813,9 @@ app.get("/api/supervisor/dashboard", requireSupervisor, async (req, res) => {
       tasks,
       team,
       updates,
-      notifications
+      notifications,
+      plans,
+      priorities
     });
   } catch (error) {
     console.error("Supervisor dashboard error:", error);

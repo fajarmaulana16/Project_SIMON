@@ -374,28 +374,9 @@ export default function AdminDataManagement({ category, token }) {
     }
   }
 
-  const title = category === "master" ? "Master Data"
-    : category === "projects" ? "Proyek & Perencanaan"
-      : category === "tasks" ? "Manajemen Pekerjaan"
-        : category === "progress" ? "Monitoring Progres & Verifikasi"
-          : category === "audit" ? "Lampiran & Riwayat"
-            : category === "evaluations" ? "Manajemen Evaluasi"
-              : category === "notifications" ? "Notifikasi"
-                : "Pengaturan Sistem";
-
   if (isMasterOverview) {
     return (
-      <section className="admin-data admin-master-overview">
-        <div className="admin-master-heading">
-          <div className="admin-master-breadcrumb">
-            <span>SIMON</span>
-            <ChevronRight size={14} />
-            <span>Master Data</span>
-          </div>
-          <h2>Master Data</h2>
-          <p>Konfigurasi referensi inti yang digunakan seluruh modul</p>
-        </div>
-
+      <section className="admin-data admin-master-overview" aria-label="Ringkasan master data">
         {overviewError && (
           <div className="admin-data-message error" role="alert">
             <AlertCircle size={17} />
@@ -453,13 +434,9 @@ export default function AdminDataManagement({ category, token }) {
 
   return (
     <section className={`admin-data content-card${category === "master" ? " admin-master-detail" : ""}`}>
-      <div className="admin-data-heading">
-        <div>
-          <h2>{title}</h2>
-          <p>Kelola data SIMON sesuai tabel dan relasi pada database.</p>
-        </div>
-        <div className="admin-data-heading-actions">
-          {category === "master" && (
+      {category === "master" && (
+        <div className="admin-data-heading">
+          <div className="admin-data-heading-actions">
             <button
               className="admin-data-button secondary"
               type="button"
@@ -467,36 +444,30 @@ export default function AdminDataManagement({ category, token }) {
             >
               <ArrowLeft size={15} /> Kembali ke Master Data
             </button>
-          )}
-          <button
-            className="admin-data-button secondary"
-            type="button"
-            onClick={() => selected && loadRows(selected)}
-            disabled={loading || !selected}
-          >
-            <RefreshCw size={15} /> Muat ulang
-          </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="admin-resource-tabs" role="tablist" aria-label="Pilih tabel database">
-        {resources.filter((name) => name !== "rencana_pekerjaan" || selected === name).map((name) => {
-          const item = metadata.resources[name];
-          if (!item) return null;
-          return (
-            <button
-              key={name}
-              type="button"
-              role="tab"
-              aria-selected={selected === name}
-              className={selected === name ? "active" : ""}
-              onClick={() => chooseResource(name)}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+      {category !== "master" && (
+        <div className="admin-resource-tabs" role="tablist" aria-label="Pilih tabel database">
+          {resources.filter((name) => name !== "rencana_pekerjaan" || selected === name).map((name) => {
+            const item = metadata.resources[name];
+            if (!item) return null;
+            return (
+              <button
+                key={name}
+                type="button"
+                role="tab"
+                aria-selected={selected === name}
+                className={selected === name ? "active" : ""}
+                onClick={() => chooseResource(name)}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {error && <div className="admin-data-message error" role="alert"><AlertCircle size={17} />{error}</div>}
       {notice && <div className="admin-data-message success" role="status">{notice}</div>}

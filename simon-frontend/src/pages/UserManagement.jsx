@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import "./UserManagement.css";
 
 const API_URL =
@@ -294,20 +294,7 @@ export default function UserManagement({ token, currentUserId }) {
   return (
     <section className="users-management content-card">
       <div className="users-heading">
-        <div>
-          <h2>Manajemen Pengguna</h2>
-          <p>Kelola akun, role, divisi, supervisor, dan status akses pengguna.</p>
-        </div>
         <div className="users-heading-actions">
-          <button
-            className="users-button users-button-secondary"
-            type="button"
-            onClick={loadUsers}
-            disabled={loading || saving}
-          >
-            <RefreshCw size={16} />
-            Muat ulang
-          </button>
           <button
             className="users-button users-button-primary"
             type="button"

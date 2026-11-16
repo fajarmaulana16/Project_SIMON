@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Menu,
-  RefreshCw,
 } from "lucide-react";
 import UserManagement from "./UserManagement";
 import AdminDataManagement from "./AdminDataManagement";
@@ -40,6 +39,20 @@ const menuItems = [
   { label: "Laporan", icon: FileBarChart, category: "reports" },
   { label: "Pengaturan", icon: Settings, category: "settings" },
 ];
+
+const menuDescriptions = {
+  Dashboard: "Ringkasan dan monitoring data SIMON",
+  "Manajemen Pengguna": "Kelola akun, peran, divisi, dan status akses pengguna",
+  "Master Data": "Referensi inti untuk menjaga konsistensi seluruh modul",
+  "Proyek & Rencana": "Pantau proyek dan rencana kerja yang terdaftar",
+  Pekerjaan: "Kelola pekerjaan, penanggung jawab, dan target pelaksanaan",
+  "Progres & Verifikasi": "Pantau progres pekerjaan dan proses verifikasi",
+  "Lampiran & Riwayat": "Telusuri dokumen pendukung dan riwayat perubahan",
+  Evaluasi: "Pantau hasil evaluasi dan penilaian pekerjaan",
+  Notifikasi: "Pantau pemberitahuan dan tindak lanjut sistem",
+  Laporan: "Analisis kinerja proyek dan pekerjaan yang perlu perhatian",
+  Pengaturan: "Kelola konfigurasi sistem SIMON",
+};
 
 const initialStats = [
   {
@@ -277,27 +290,11 @@ export default function DashboardAdmin({ onLogout, session }) {
 
             <div>
               <h1>{activeMenu === "Dashboard" ? "Dashboard Admin" : activeMenu}</h1>
-              <p>
-                {activeMenu === "Manajemen Pengguna"
-                  ? "Kelola akun dan hak akses pengguna SIMON"
-                  : activeMenu === "Dashboard"
-                    ? "Ringkasan dan monitoring data SIMON"
-                    : `Kelola ${activeMenu.toLowerCase()} berdasarkan database SIMON`}
-              </p>
+              <p>{menuDescriptions[activeMenu] || "Monitoring sistem SIMON"}</p>
             </div>
           </div>
 
           <div className="header-actions">
-            {activeMenu === "Dashboard" && (
-              <button
-                className="icon-button"
-                title="Muat ulang data"
-                onClick={refreshDashboard}
-              >
-                <RefreshCw size={19} />
-              </button>
-            )}
-
             <button
               className="icon-button"
               title="Notifikasi"

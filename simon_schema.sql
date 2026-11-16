@@ -14,7 +14,7 @@ DROP VIEW IF EXISTS v_monitoring_deadline;
 DROP VIEW IF EXISTS v_ringkasan_proyek;
 DROP TABLE IF EXISTS notifikasi, ringkasan_evaluasi, evaluasi_nilai,
   evaluasi_pekerjaan, kriteria_evaluasi, pekerjaan_status_log, lampiran,
-  progres_log, pekerjaan_tahapan, pekerjaan, rencana_pekerjaan, proyek,
+  progres_log, pekerjaan_tahapan, pekerjaan, rencana_status_log, rencana_pekerjaan, proyek,
   pengaturan, tahapan, prioritas, jenis_pekerjaan, fungsi, users, divisi, roles;
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -134,7 +134,7 @@ CREATE TABLE rencana_pekerjaan (
   durasi_hari SMALLINT UNSIGNED NOT NULL,
   tgl_rencana_selesai DATE GENERATED ALWAYS AS (DATE_ADD(tgl_rencana_mulai, INTERVAL durasi_hari DAY)) STORED,
   pic_awal_id INT UNSIGNED NULL,
-  status ENUM('draft','disetujui','berjalan','selesai','dibatalkan') NOT NULL DEFAULT 'draft',
+  status ENUM('draft','menunggu_review','revisi','disetujui','berjalan','selesai','dibatalkan') NOT NULL DEFAULT 'draft',
   alasan_batal VARCHAR(255) NULL,
   disetujui_oleh INT UNSIGNED NULL,
   tgl_disetujui DATETIME NULL,
@@ -153,10 +153,26 @@ CREATE TABLE rencana_pekerjaan (
   CONSTRAINT fk_rencana_pembuat FOREIGN KEY (dibuat_oleh) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE rencana_status_log (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  rencana_id INT UNSIGNED NOT NULL,
+  status_lama VARCHAR(30) NULL,
+  status_baru VARCHAR(30) NOT NULL,
+  catatan TEXT NULL,
+  diubah_oleh INT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_rencana_status_log (rencana_id, created_at),
+  CONSTRAINT fk_rencana_status_log_rencana
+    FOREIGN KEY (rencana_id) REFERENCES rencana_pekerjaan(id) ON DELETE CASCADE,
+  CONSTRAINT fk_rencana_status_log_user
+    FOREIGN KEY (diubah_oleh) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 -- 3. PELAKSANAAN
 CREATE TABLE pekerjaan (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   kode VARCHAR(30) NOT NULL UNIQUE,
+  idempotency_key CHAR(36) NULL UNIQUE,
   proyek_id INT UNSIGNED NOT NULL,
   rencana_id INT UNSIGNED NULL,
   pekerjaan_induk_id INT UNSIGNED NULL,

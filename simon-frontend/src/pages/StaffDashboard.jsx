@@ -19,7 +19,6 @@ import {
   MoreHorizontal,
   PencilLine,
   Paperclip,
-  RefreshCw,
   Search,
   Upload,
   UserRound,
@@ -711,15 +710,6 @@ export default function StaffDashboard({ session, onLogout }) {
             <button
               className="staff-icon-button"
               type="button"
-              title="Muat ulang dashboard"
-              onClick={loadDashboard}
-              disabled={loading}
-            >
-              <RefreshCw size={17} />
-            </button>
-            <button
-              className="staff-icon-button"
-              type="button"
               title="Lihat notifikasi"
               onClick={() => goToSection("notifications")}
             >
@@ -766,7 +756,7 @@ export default function StaffDashboard({ session, onLogout }) {
                       setHistoryReload((count) => count + 1);
                     }}
                   >
-                    Muat ulang
+                    Coba lagi
                   </button>
                 </div>
               )}
